@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -15,19 +16,17 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
-	"google.golang.org/api/sheets/v4"
 )
 
 const (
-	folderId    string = ""
 	credentials string = "client_id.json"
 	dist        string = "dist"
 
-	readRange string = "学習報告書!A1:F48"
-	tokFile   string = "token.json"
+	tokFile string = "token.json"
 )
 
 var removeTemporalPdf = true
+var folderId string
 
 // contains?
 // return the first index if src contains elem
@@ -39,6 +38,17 @@ func contains(src []string, elem string) int {
 		}
 	}
 	return -1
+}
+
+// inputFolderId
+//    requires to input folder id from stdin
+func inputFolderId() {
+	sc := bufio.NewScanner(os.Stdin)
+	fmt.Println("Input google folder id.")
+
+	if sc.Scan() {
+		folderId = sc.Text()
+	}
 }
 
 // Retrieve a token, saves the token, then returns the generated client.
@@ -148,61 +158,46 @@ func DownloadFile(d *drive.Service, fileId string, fileName string) error {
 
 // FromSpreadsheetToPdf fetches and downloads the given spreadsheet
 //     with A4 paper size
-func FromSpreadsheetToPdf(client *http.Client, d *drive.Service, file *drive.File, config *oauth2.Config) error {
-	srv, err := sheets.New(client)
-	if err != nil {
-		fmt.Printf("An error occurred: %v\n", err)
-		return err
-	}
-
-	token, err := tokenFromFile(tokFile)
+func FromSpreadsheetToPdf(file *drive.File, config *oauth2.Config) error {
+	token, err := tokenFromFile("token2.json")
 	if err != nil {
 		token = getTokenFromWeb(config)
-		saveToken(tokFile, token)
+		saveToken("token2.json", token)
 	}
-	fmt.Println(token.AccessToken)
 
-	resp, err := srv.Spreadsheets.Values.Get(file.Id, readRange).Do()
+	url := "https://docs.google.com/spreadsheets/d/" + file.Id + "/export?" +
+		"format=pdf" +
+		"&size=A4" +
+		"&fitw=true" +
+		"&gid=0" + // 0?
+		"&access_token=" + token.AccessToken
+
+	req, err := http.NewRequest("Get", url, nil)
 	if err != nil {
 		fmt.Printf("An error occurred: %v\n", err)
 		return err
 	}
+	client := new(http.Client)
+	response, _ := client.Do(req)
 
-	if len(resp.Values) == 0 {
-		fmt.Println("No data found.")
-	} else {
-		url := "https://docs.google.com/spreadsheets/d/" + file.Id + "/export?" +
-			"format=pdf" +
-			"&size=A4" +
-			"&fitw=true" +
-			"&gid=0" + // 0?
-			"&access_token=" + token.AccessToken
+	defer response.Body.Close()
 
-		req, err := http.NewRequest("Get", url, nil)
-		if err != nil {
-			fmt.Printf("An error occurred: %v\n", err)
-			return err
-		}
-		client := new(http.Client)
-		response, _ := client.Do(req)
+	fmt.Println(response.StatusCode)
+	data, err := ioutil.ReadAll(response.Body)
 
-		defer response.Body.Close()
+	// Save as pdf
+	fileName := dist + "/" + file.Name + ".pdf"
+	ioutil.WriteFile(fileName, data, 0644)
 
-		fmt.Println(response.StatusCode)
-		data, err := ioutil.ReadAll(response.Body)
+	// Print on a printer
+	// Printout(data)
 
-		// Save as pdf
-		// fileName := dist + "/" + file.Name + ".pdf"
-		// ioutil.WriteFile(fileName, data, 0644)
-
-		// Print on a printer
-		Printout(data)
-
-	}
 	return nil
 }
 
 func main() {
+	inputFolderId()
+
 	if err := os.Mkdir(dist, 0777); err != nil {
 		fmt.Printf("Unable to create directory: %v\n", err)
 	}
@@ -218,7 +213,6 @@ func main() {
 		log.Fatalf("Unable to parse client secret file to config: %v", err)
 	}
 	client := getClient(config)
-
 	srv, err := drive.New(client)
 	if err != nil {
 		log.Fatalf("Unable to retrieve Drive client: %v", err)
@@ -235,7 +229,7 @@ func main() {
 		for _, i := range r.Files {
 			if contains(i.Parents, folderId) >= 0 {
 				fmt.Printf("%s (%s) %s\n", i.Name, i.Id, i.MimeType)
-				err := FromSpreadsheetToPdf(client, srv, i, config)
+				err := FromSpreadsheetToPdf(i, config)
 				// err := DownloadFile(srv, i.Id, dist+"/"+i.Name+".pdf")
 				// err := PrintFile (srv, i.Id)
 				if err != nil {
