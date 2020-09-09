@@ -159,6 +159,10 @@ func DownloadFile(d *drive.Service, fileId string, fileName string) error {
 // FromSpreadsheetToPdf fetches and downloads the given spreadsheet
 //     with A4 paper size
 func FromSpreadsheetToPdf(file *drive.File, config *oauth2.Config) error {
+	if file.MimeType != "application/vnd.google-apps.spreadsheet" {
+		fmt.Printf("Mimetype is not spreadsheet: %s\n", file.MimeType)
+		return nil
+	}
 	token, err := tokenFromFile("token2.json")
 	if err != nil {
 		token = getTokenFromWeb(config)
