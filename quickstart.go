@@ -186,7 +186,11 @@ func FromSpreadsheetToPdf(file *drive.File, config *oauth2.Config) error {
 
 	defer response.Body.Close()
 
-	fmt.Println(response.StatusCode)
+	if response.StatusCode>=200 && response.StatusCode<300 {
+		fmt.Println(response.StatusCode)
+	} else {
+		fmt.Printf("\x1b[31m%d\x1b[0m\n", response.StatusCode)
+	}
 	data, err := ioutil.ReadAll(response.Body)
 
 	// Save as pdf
@@ -222,21 +226,39 @@ func main() {
 		log.Fatalf("Unable to retrieve Drive client: %v", err)
 	}
 
-	r, err := srv.Files.List().PageSize(10).
-		Fields("nextPageToken, files(parents, id, name, mimeType)").Do()
+	// Output Google Folder Id Name
+	r, err := srv.Files.Get(folderId).Do()
 	if err != nil {
-		log.Fatalf("Unable to retrieve files: %v", err)
+		log.Fatalf("Does not exist the folder")
 	}
-	if len(r.Files) == 0 {
-		fmt.Println("No files found.")
-	} else {
-		for _, i := range r.Files {
-			if contains(i.Parents, folderId) >= 0 {
-				fmt.Printf("%s (%s) %s\n", i.Name, i.Id, i.MimeType)
-				err := FromSpreadsheetToPdf(i, config)
-				// err := DownloadFile(srv, i.Id, dist+"/"+i.Name+".pdf")
-				// err := PrintFile (srv, i.Id)
-				if err != nil {
+	fmt.Printf ("Folder Name: %s\n", r.Name)
+
+	pageToken := ""
+	for {
+		q := srv.Files.List().PageSize(500).
+			Fields("nextPageToken, files(parents, id, name, mimeType)")
+		if pageToken != "" {
+			q = q.PageToken (pageToken)
+		}
+		r, err := q.Do()
+		if err != nil {
+			log.Fatalf("Unable to retrieve files: %v", err)
+		}
+		pageToken = r.NextPageToken
+		if pageToken == "" {
+			break;
+		}
+		if len(r.Files) == 0 {
+			fmt.Println("No files found.")
+		} else {
+			for _, i := range r.Files {
+				if contains(i.Parents, folderId) >= 0 {
+					fmt.Printf ("%s\t%s\t", i.Id, i.Name)
+					err := FromSpreadsheetToPdf(i, config)
+					// err := DownloadFile(srv, i.Id, dist+"/"+i.Name+".pdf")
+					// err := PrintFile (srv, i.Id)
+					if err != nil {
+					}
 				}
 			}
 		}
