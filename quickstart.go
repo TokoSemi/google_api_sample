@@ -27,6 +27,7 @@ const (
 
 var removeTemporalPdf = true
 var folderId string
+var errorFileNames []string
 
 // contains?
 // return the first index if src contains elem
@@ -195,6 +196,7 @@ func FromSpreadsheetToPdf(file *drive.File, config *oauth2.Config) error {
 		fmt.Printf("%d\t", response.StatusCode)
 	} else {
 		fmt.Printf("\x1b[31m%d\t", response.StatusCode)
+		errorFileNames = append(errorFileNames, file.Name)
 		return nil
 	}
 	data, err := ioutil.ReadAll(response.Body)
@@ -209,7 +211,17 @@ func FromSpreadsheetToPdf(file *drive.File, config *oauth2.Config) error {
 	return nil
 }
 
+// Output file names that cause some error
+func PrintErrorFilesList() {
+	fmt.Printf("/**************** FILES THAT FAILED TO GET ****************/")
+	for _, v := range errorFileNames {
+		fmt.Println(v)
+	}
+	fmt.Printf("/**********************************************************/")
+}
+
 func main() {
+	errorFileNames = make([]string, 0, 16)
 	inputFolderId()
 
 	if err := os.Mkdir(dist, 0777); err != nil {
@@ -239,7 +251,9 @@ func main() {
 	}
 	fmt.Printf("Folder Name: %s\n", r.Name)
 
+	// Main
 	pageToken := ""
+	errorFlag := false
 	for {
 		q := srv.Files.List().PageSize(500).
 			Fields("nextPageToken, files(parents, id, name, mimeType)")
@@ -261,6 +275,7 @@ func main() {
 					// err := PrintFile (srv, i.Id)
 					fmt.Printf("%s\t%s\x1b[0m\n", i.Id, i.Name)
 					if err != nil {
+						errorFlag = true
 					}
 				}
 			}
@@ -271,5 +286,9 @@ func main() {
 		if pageToken == "" {
 			break
 		}
+	}
+
+	if errorFlag {
+		PrintErrorFilesList()
 	}
 }
