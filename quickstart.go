@@ -136,6 +136,11 @@ func Printout(data []byte) {
 	c.Wait()
 }
 
+// Save data
+func SaveFile(data []byte, fileName string) {
+	ioutil.WriteFile(fileName, data, 0644)
+}
+
 // DownloadFile fetches and downloads the given file as mimetype pdf
 func DownloadFile(d *drive.Service, fileId string, fileName string) error {
 	response, err := d.Files.Export(fileId, "application/pdf").Fields("size(A4), fitw(true)").Download()
@@ -151,7 +156,7 @@ func DownloadFile(d *drive.Service, fileId string, fileName string) error {
 	// Printout(data)
 
 	// Save as pdf
-	ioutil.WriteFile(fileName, data, 0644)
+	SaveFile(data, fileName)
 
 	return nil
 }
@@ -186,16 +191,17 @@ func FromSpreadsheetToPdf(file *drive.File, config *oauth2.Config) error {
 
 	defer response.Body.Close()
 
-	if response.StatusCode>=200 && response.StatusCode<300 {
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
 		fmt.Println(response.StatusCode)
 	} else {
 		fmt.Printf("\x1b[31m%d\x1b[0m\n", response.StatusCode)
+		return nil
 	}
 	data, err := ioutil.ReadAll(response.Body)
 
 	// Save as pdf
 	fileName := dist + "/" + file.Name + ".pdf"
-	ioutil.WriteFile(fileName, data, 0644)
+	SaveFile(data, fileName)
 
 	// Print on a printer
 	// Printout(data)
@@ -231,14 +237,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("Does not exist the folder")
 	}
-	fmt.Printf ("Folder Name: %s\n", r.Name)
+	fmt.Printf("Folder Name: %s\n", r.Name)
 
 	pageToken := ""
 	for {
 		q := srv.Files.List().PageSize(500).
 			Fields("nextPageToken, files(parents, id, name, mimeType)")
 		if pageToken != "" {
-			q = q.PageToken (pageToken)
+			q = q.PageToken(pageToken)
 		}
 		r, err := q.Do()
 		if err != nil {
@@ -246,14 +252,14 @@ func main() {
 		}
 		pageToken = r.NextPageToken
 		if pageToken == "" {
-			break;
+			break
 		}
 		if len(r.Files) == 0 {
 			fmt.Println("No files found.")
 		} else {
 			for _, i := range r.Files {
 				if contains(i.Parents, folderId) >= 0 {
-					fmt.Printf ("%s\t%s\t", i.Id, i.Name)
+					fmt.Printf("%s\t%s\t", i.Id, i.Name)
 					err := FromSpreadsheetToPdf(i, config)
 					// err := DownloadFile(srv, i.Id, dist+"/"+i.Name+".pdf")
 					// err := PrintFile (srv, i.Id)
