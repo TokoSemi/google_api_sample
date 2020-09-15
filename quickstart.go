@@ -192,9 +192,9 @@ func FromSpreadsheetToPdf(file *drive.File, config *oauth2.Config) error {
 	defer response.Body.Close()
 
 	if response.StatusCode >= 200 && response.StatusCode < 300 {
-		fmt.Println(response.StatusCode)
+		fmt.Printf("%d\t", response.StatusCode)
 	} else {
-		fmt.Printf("\x1b[31m%d\x1b[0m\n", response.StatusCode)
+		fmt.Printf("\x1b[31m%d\t", response.StatusCode)
 		return nil
 	}
 	data, err := ioutil.ReadAll(response.Body)
@@ -250,23 +250,26 @@ func main() {
 		if err != nil {
 			log.Fatalf("Unable to retrieve files: %v", err)
 		}
-		pageToken = r.NextPageToken
-		if pageToken == "" {
-			break
-		}
+
 		if len(r.Files) == 0 {
-			fmt.Println("No files found.")
+			break
 		} else {
 			for _, i := range r.Files {
 				if contains(i.Parents, folderId) >= 0 {
-					fmt.Printf("%s\t%s\t", i.Id, i.Name)
 					err := FromSpreadsheetToPdf(i, config)
 					// err := DownloadFile(srv, i.Id, dist+"/"+i.Name+".pdf")
 					// err := PrintFile (srv, i.Id)
+					fmt.Printf("%s\t%s\x1b[0m\n", i.Id, i.Name)
 					if err != nil {
 					}
 				}
 			}
+		}
+
+		// When there is no next page token, break loop
+		pageToken = r.NextPageToken
+		if pageToken == "" {
+			break
 		}
 	}
 }
