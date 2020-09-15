@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -25,7 +26,6 @@ const (
 	tokFile string = "token.json"
 )
 
-var removeTemporalPdf = true
 var folderId string
 var errorFileNames []string
 
@@ -197,7 +197,7 @@ func FromSpreadsheetToPdf(file *drive.File, config *oauth2.Config) error {
 	} else {
 		fmt.Printf("\x1b[31m%d\t", response.StatusCode)
 		errorFileNames = append(errorFileNames, file.Name)
-		return nil
+		return errors.New("Response status is not 2xx.")
 	}
 	data, err := ioutil.ReadAll(response.Body)
 
@@ -213,11 +213,11 @@ func FromSpreadsheetToPdf(file *drive.File, config *oauth2.Config) error {
 
 // Output file names that cause some error
 func PrintErrorFilesList() {
-	fmt.Printf("/**************** FILES THAT FAILED TO GET ****************/")
+	fmt.Println("/**************** FILES THAT FAILED TO GET ****************/")
 	for _, v := range errorFileNames {
 		fmt.Println(v)
 	}
-	fmt.Printf("/**********************************************************/")
+	fmt.Println("/**********************************************************/")
 }
 
 func main() {
@@ -254,6 +254,8 @@ func main() {
 	// Main
 	pageToken := ""
 	errorFlag := false
+	succ := 0
+	fail := 0
 	for {
 		q := srv.Files.List().PageSize(500).
 			Fields("nextPageToken, files(parents, id, name, mimeType)")
@@ -265,18 +267,17 @@ func main() {
 			log.Fatalf("Unable to retrieve files: %v", err)
 		}
 
-		if len(r.Files) == 0 {
-			break
-		} else {
-			for _, i := range r.Files {
-				if contains(i.Parents, folderId) >= 0 {
-					err := FromSpreadsheetToPdf(i, config)
-					// err := DownloadFile(srv, i.Id, dist+"/"+i.Name+".pdf")
-					// err := PrintFile (srv, i.Id)
-					fmt.Printf("%s\t%s\x1b[0m\n", i.Id, i.Name)
-					if err != nil {
-						errorFlag = true
-					}
+		for _, i := range r.Files {
+			if contains(i.Parents, folderId) >= 0 {
+				err := FromSpreadsheetToPdf(i, config)
+				// err := DownloadFile(srv, i.Id, dist+"/"+i.Name+".pdf")
+				// err := PrintFile (srv, i.Id)
+				fmt.Printf("%s\t%s\x1b[0m\n", i.Id, i.Name)
+				if err != nil {
+					errorFlag = true
+					fail++
+				} else {
+					succ++
 				}
 			}
 		}
@@ -287,6 +288,8 @@ func main() {
 			break
 		}
 	}
+
+	fmt.Printf("Succeeded %d files, failed %d files.\n", succ, fail)
 
 	if errorFlag {
 		PrintErrorFilesList()
