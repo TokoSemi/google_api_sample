@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/http/httputil"
 	"os"
 	"os/exec"
 
@@ -24,6 +25,8 @@ const (
 	dist        string = "dist"
 
 	tokFile string = "token.json"
+
+	scopes = drive.DriveScope
 )
 
 var folderId string
@@ -175,6 +178,42 @@ func FromSpreadsheetToPdf(file *drive.File, config *oauth2.Config) error {
 		saveToken("token2.json", token)
 	}
 
+	if !token.Valid() {
+		// if expired
+		// url2 := "https://oauth2.googleapis.com/token"
+		fmt.Println(config.Endpoint.TokenURL)
+		req, err := http.NewRequest("POST", config.Endpoint.TokenURL, nil)
+		if err != nil {
+			fmt.Printf("An error occurred: %v\n", err)
+			return err
+		}
+		reft := token.RefreshToken[:1] + token.RefreshToken[2:]
+		//req.Header.Set("refresh_token", token.RefreshToken)
+		req.Header.Set("refresh_token", reft)
+		req.Header.Set("access_type", "offline")
+		req.Header.Set("client_id", config.ClientID)
+		req.Header.Set("client_secret", config.ClientSecret)
+		req.Header.Set("redirect_uri", config.RedirectURL)
+		req.Header.Set("grant_type", "refresh_token")
+		req.Header.Set("content-type", "application/x-www-form-urlencoded")
+
+		dump, _ := httputil.DumpRequestOut(req, true)
+		fmt.Printf("%s\n\n", dump)
+
+		client := new(http.Client)
+		resp, err := client.Do(req)
+
+		fmt.Println(resp.StatusCode)
+		// dumpResp, _ := httputil.DumpResponse(resp, true)
+		defer resp.Body.Close()
+		data, err := ioutil.ReadAll(resp.Body)
+		SaveFile(data, "response.html")
+
+		// fmt.Printf("%s\n", dumpResp)
+
+		return nil
+	}
+
 	url := "https://docs.google.com/spreadsheets/d/" + file.Id + "/export?" +
 		"format=pdf" +
 		"&size=A4" +
@@ -234,7 +273,7 @@ func main() {
 	}
 
 	// If modifying these scopes, delete your previously saved token.json.
-	config, err := google.ConfigFromJSON(b, drive.DriveScope)
+	config, err := google.ConfigFromJSON(b, scopes)
 	if err != nil {
 		log.Fatalf("Unable to parse client secret file to config: %v", err)
 	}
@@ -258,7 +297,7 @@ func main() {
 	fail := 0
 	for {
 		q := srv.Files.List().PageSize(500).
-			Fields("nextPageToken, files(parents, id, name, mimeType)")
+			Fields("nextPageToken, files(parents, id, name, mimeType, trashed)")
 		if pageToken != "" {
 			q = q.PageToken(pageToken)
 		}
@@ -268,7 +307,7 @@ func main() {
 		}
 
 		for _, i := range r.Files {
-			if contains(i.Parents, folderId) >= 0 {
+			if !i.Trashed && contains(i.Parents, folderId) >= 0 {
 				err := FromSpreadsheetToPdf(i, config)
 				// err := DownloadFile(srv, i.Id, dist+"/"+i.Name+".pdf")
 				// err := PrintFile (srv, i.Id)
