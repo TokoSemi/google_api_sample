@@ -301,6 +301,7 @@ func main() {
 		if pageToken != "" {
 			q = q.PageToken(pageToken)
 		}
+		fmt.Printf("%#v\n", q.Header())
 		r, err := q.Do()
 		if err != nil {
 			log.Fatalf("Unable to retrieve files: %v", err)
