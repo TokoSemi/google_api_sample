@@ -206,6 +206,8 @@ func DownloadFile(d *drive.Service, fileId string, fileName string) error {
 // FromSpreadsheetToPdf fetches and downloads the given spreadsheet
 //     with A4 paper size
 func FromSpreadsheetToPdf(file *drive.File, config *oauth2.Config) error {
+	// Refered from
+	// https://kido0617.github.io/go/2016-07-18-oauth2/
 	if file.MimeType != "application/vnd.google-apps.spreadsheet" {
 		fmt.Printf("Mimetype is not spreadsheet: %s\n", file.MimeType)
 		return nil
