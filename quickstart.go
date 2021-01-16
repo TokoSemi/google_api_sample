@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -31,6 +32,7 @@ const (
 
 var folderId string
 var errorFileNames []string
+var printFlag *bool
 
 // contains?
 // return the first index if src contains elem
@@ -109,6 +111,42 @@ func saveToken(path string, token *oauth2.Token) {
 	json.NewEncoder(f).Encode(token)
 }
 
+// Reissue access tokens
+func ReissueTokens(config *oauth2.Config, token *oauth2.Token) error {
+	requestUrl := "https://www.googleapis.com/oauth2/v4/token"
+	// fmt.Println(config.Endpoint.TokenURL)
+	req, err := http.NewRequest("POST", requestUrl, nil)
+	if err != nil {
+		fmt.Printf("An error occurred: %v\n", err)
+		return err
+	}
+	//reft := token.RefreshToken[:1] + token.RefreshToken[2:]
+	req.Header.Set("refresh_token", token.RefreshToken)
+	//req.Header.Set("refresh_token", reft)
+	req.Header.Set("access_type", "offline")
+	req.Header.Set("client_id", config.ClientID)
+	req.Header.Set("client_secret", config.ClientSecret)
+	req.Header.Set("redirect_uri", config.RedirectURL)
+	req.Header.Set("grant_type", "refresh_token")
+	req.Header.Set("content-type", "application/x-www-form-urlencoded")
+
+	dump, _ := httputil.DumpRequestOut(req, true)
+	fmt.Printf("%s\n\n", dump)
+
+	client := new(http.Client)
+	resp, err := client.Do(req)
+
+	fmt.Println(resp.StatusCode)
+	// dumpResp, _ := httputil.DumpResponse(resp, true)
+	defer resp.Body.Close()
+	data, err := ioutil.ReadAll(resp.Body)
+	SaveFile(data, "response.html")
+
+	// fmt.Printf("%s\n", dumpResp)
+
+	return nil
+}
+
 // PrintFile fetches and displays the given file.
 func PrintFile(d *drive.Service, fileId string) error {
 	f, err := d.Files.Get(fileId).
@@ -180,37 +218,7 @@ func FromSpreadsheetToPdf(file *drive.File, config *oauth2.Config) error {
 
 	if !token.Valid() {
 		// if expired
-		// url2 := "https://oauth2.googleapis.com/token"
-		fmt.Println(config.Endpoint.TokenURL)
-		req, err := http.NewRequest("POST", config.Endpoint.TokenURL, nil)
-		if err != nil {
-			fmt.Printf("An error occurred: %v\n", err)
-			return err
-		}
-		reft := token.RefreshToken[:1] + token.RefreshToken[2:]
-		//req.Header.Set("refresh_token", token.RefreshToken)
-		req.Header.Set("refresh_token", reft)
-		req.Header.Set("access_type", "offline")
-		req.Header.Set("client_id", config.ClientID)
-		req.Header.Set("client_secret", config.ClientSecret)
-		req.Header.Set("redirect_uri", config.RedirectURL)
-		req.Header.Set("grant_type", "refresh_token")
-		req.Header.Set("content-type", "application/x-www-form-urlencoded")
-
-		dump, _ := httputil.DumpRequestOut(req, true)
-		fmt.Printf("%s\n\n", dump)
-
-		client := new(http.Client)
-		resp, err := client.Do(req)
-
-		fmt.Println(resp.StatusCode)
-		// dumpResp, _ := httputil.DumpResponse(resp, true)
-		defer resp.Body.Close()
-		data, err := ioutil.ReadAll(resp.Body)
-		SaveFile(data, "response.html")
-
-		// fmt.Printf("%s\n", dumpResp)
-
+		ReissueTokens(config, token)
 		return nil
 	}
 
@@ -245,7 +253,10 @@ func FromSpreadsheetToPdf(file *drive.File, config *oauth2.Config) error {
 	SaveFile(data, fileName)
 
 	// Print on a printer
-	// Printout(data)
+	if *printFlag {
+		fmt.Println("true")
+		// Printout(data)
+	}
 
 	return nil
 }
@@ -260,6 +271,9 @@ func PrintErrorFilesList() {
 }
 
 func main() {
+	// Parse flag
+	printFlag = flag.Bool("p", false, "Printout spreadsheets.")
+	flag.Parse()
 	errorFileNames = make([]string, 0, 16)
 	inputFolderId()
 
@@ -301,7 +315,6 @@ func main() {
 		if pageToken != "" {
 			q = q.PageToken(pageToken)
 		}
-		fmt.Printf("%#v\n", q.Header())
 		r, err := q.Do()
 		if err != nil {
 			log.Fatalf("Unable to retrieve files: %v", err)
