@@ -210,32 +210,15 @@ func FromSpreadsheetToPdf(file *drive.File, config *oauth2.Config) error {
 		fmt.Printf("Mimetype is not spreadsheet: %s\n", file.MimeType)
 		return nil
 	}
-	token, err := tokenFromFile("token2.json")
-	if err != nil {
-		token = getTokenFromWeb(config)
-		saveToken("token2.json", token)
-	}
 
-	if !token.Valid() {
-		// if expired
-		ReissueTokens(config, token)
-		return nil
-	}
-
-	url := "https://docs.google.com/spreadsheets/d/" + file.Id + "/export?" +
+	sheetUrl := "https://docs.google.com/spreadsheets/d/" + file.Id + "/export?" +
 		"format=pdf" +
 		"&size=A4" +
 		"&fitw=true" +
-		"&gid=0" + // 0?
-		"&access_token=" + token.AccessToken
+		"&gid=0" // 0?
 
-	req, err := http.NewRequest("Get", url, nil)
-	if err != nil {
-		fmt.Printf("An error occurred: %v\n", err)
-		return err
-	}
-	client := new(http.Client)
-	response, _ := client.Do(req)
+	client := getClient(config)
+	response, _ := client.Get(sheetUrl)
 
 	defer response.Body.Close()
 
@@ -247,6 +230,9 @@ func FromSpreadsheetToPdf(file *drive.File, config *oauth2.Config) error {
 		return errors.New("Response status is not 2xx.")
 	}
 	data, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return err
+	}
 
 	// Save as pdf
 	fileName := dist + "/" + file.Name + ".pdf"
