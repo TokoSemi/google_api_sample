@@ -14,25 +14,33 @@ import (
 	"net/http/httputil"
 	"os"
 	"os/exec"
+	"strconv"
+	"time"
 
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/drive/v3"
+
+	"github.com/signintech/gopdf"
 )
 
 const (
 	credentials string = "client_id.json"
-	dist        string = "dist"
 
 	tokFile string = "token.json"
 
 	scopes = drive.DriveScope
+
+	A4_WIDTH  = 595.28
+	A4_HEIGHT = 841.89
 )
 
 var folderId string
 var errorFileNames []string
 var printFlag *bool
+var downloadedFileList []string
+var dist string = "dist/" + strconv.FormatInt(time.Now().UnixNano(), 10)
 
 // contains?
 // return the first index if src contains elem
@@ -147,6 +155,47 @@ func ReissueTokens(config *oauth2.Config, token *oauth2.Token) error {
 	return nil
 }
 
+// Check whether the file exists
+func Exists(filename string) bool {
+	_, err := os.Stat(filename)
+	return err == nil
+}
+
+func getA4Size() gopdf.Rect {
+	return gopdf.Rect{W: A4_WIDTH, H: A4_HEIGHT}
+}
+
+func getA4Config() gopdf.Config {
+	return gopdf.Config{PageSize: getA4Size()}
+}
+
+func ConcatPdf(filelist []string, filename string) error {
+	// Create new pdf
+	pdf := gopdf.GoPdf{}
+	config := getA4Config()
+	pdf.Start(config)
+
+	unexistedFileList := make([]string, 0)
+
+	// Import existing pdf
+	for _, file := range filelist {
+		if !Exists(file) {
+			unexistedFileList = append(unexistedFileList, file)
+			continue
+		}
+		pdf.AddPage()
+		tpl := pdf.ImportPage(file, 1, "/MediaBox")
+		pdf.UseImportedTemplate(tpl, 0, 0, A4_WIDTH, A4_HEIGHT)
+	}
+
+	pdf.WritePdf(filename)
+
+	if len(unexistedFileList) != 0 {
+		return errors.New(fmt.Sprintf("These files does not exist: %+v", unexistedFileList))
+	}
+	return nil
+}
+
 // PrintFile fetches and displays the given file.
 func PrintFile(d *drive.Service, fileId string) error {
 	f, err := d.Files.Get(fileId).
@@ -160,6 +209,16 @@ func PrintFile(d *drive.Service, fileId string) error {
 	fmt.Printf("Parent: %v ", f.Parents)
 	fmt.Println("")
 	return nil
+}
+
+// Printout a file on a printer
+func PrintoutFromFile(fileName string) {
+	data, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		log.Fatalf("Unexpected error occurred. %v", err)
+		return
+	}
+	Printout(data)
 }
 
 // Printout print data on a printer.
@@ -239,12 +298,7 @@ func FromSpreadsheetToPdf(file *drive.File, config *oauth2.Config) error {
 	// Save as pdf
 	fileName := dist + "/" + file.Name + ".pdf"
 	SaveFile(data, fileName)
-
-	// Print on a printer
-	if *printFlag {
-		fmt.Println("true")
-		// Printout(data)
-	}
+	downloadedFileList = append(downloadedFileList, fileName)
 
 	return nil
 }
@@ -258,33 +312,7 @@ func PrintErrorFilesList() {
 	fmt.Println("/**********************************************************/")
 }
 
-func main() {
-	// Parse flag
-	printFlag = flag.Bool("p", false, "Printout spreadsheets.")
-	flag.Parse()
-	errorFileNames = make([]string, 0, 16)
-	inputFolderId()
-
-	if err := os.Mkdir(dist, 0777); err != nil {
-		fmt.Printf("Unable to create directory: %v\n", err)
-	}
-
-	b, err := ioutil.ReadFile(credentials)
-	if err != nil {
-		log.Fatalf("Unable to read client secret file: %v", err)
-	}
-
-	// If modifying these scopes, delete your previously saved token.json.
-	config, err := google.ConfigFromJSON(b, scopes)
-	if err != nil {
-		log.Fatalf("Unable to parse client secret file to config: %v", err)
-	}
-	client := getClient(config)
-	srv, err := drive.New(client)
-	if err != nil {
-		log.Fatalf("Unable to retrieve Drive client: %v", err)
-	}
-
+func DownloadFromGoogleDrive(config *oauth2.Config, srv *drive.Service) {
 	// Output Google Folder Id Name
 	r, err := srv.Files.Get(folderId).Do()
 	if err != nil {
@@ -312,7 +340,6 @@ func main() {
 			if !i.Trashed && contains(i.Parents, folderId) >= 0 {
 				err := FromSpreadsheetToPdf(i, config)
 				// err := DownloadFile(srv, i.Id, dist+"/"+i.Name+".pdf")
-				// err := PrintFile (srv, i.Id)
 				fmt.Printf("%s\t%s\x1b[0m\n", i.Id, i.Name)
 				if err != nil {
 					errorFlag = true
@@ -335,4 +362,47 @@ func main() {
 	if errorFlag {
 		PrintErrorFilesList()
 	}
+}
+
+func PrintoutDownloadedFiles() {
+	// Concatenate files
+	dstFileName := dist + ".pdf"
+	ConcatPdf(downloadedFileList, dstFileName)
+	PrintoutFromFile(dstFileName)
+}
+
+func createTemporaryFolder() {
+	// dist = "dist/" + time.Now().UnixNano()
+	if err := os.Mkdir(dist, 0777); err != nil {
+		fmt.Printf("Unable to create directory: %v\n", err)
+	}
+}
+
+func main() {
+	// Parse flag
+	printFlag = flag.Bool("p", false, "Printout spreadsheets.")
+	flag.Parse()
+	errorFileNames = make([]string, 0, 16)
+	inputFolderId()
+
+	createTemporaryFolder()
+
+	b, err := ioutil.ReadFile(credentials)
+	if err != nil {
+		log.Fatalf("Unable to read client secret file: %v", err)
+	}
+
+	// If modifying these scopes, delete your previously saved token.json.
+	config, err := google.ConfigFromJSON(b, scopes)
+	if err != nil {
+		log.Fatalf("Unable to parse client secret file to config: %v", err)
+	}
+	client := getClient(config)
+	srv, err := drive.New(client)
+	if err != nil {
+		log.Fatalf("Unable to retrieve Drive client: %v", err)
+	}
+
+	DownloadFromGoogleDrive(config, srv)
+	PrintoutDownloadedFiles()
 }
