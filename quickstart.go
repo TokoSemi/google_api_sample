@@ -373,7 +373,7 @@ func PrintoutDownloadedFiles() {
 
 func createTemporaryFolder() {
 	// dist = "dist/" + time.Now().UnixNano()
-	if err := os.Mkdir(dist, 0777); err != nil {
+	if err := os.MkdirAll(dist, 0777); err != nil {
 		fmt.Printf("Unable to create directory: %v\n", err)
 	}
 }
