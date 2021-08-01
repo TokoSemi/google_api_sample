@@ -5,6 +5,7 @@ client_id.json
 refresh.sh
 response.html
 quickstart.command
+quickstart
 dist/
 spreadsheet/
 
